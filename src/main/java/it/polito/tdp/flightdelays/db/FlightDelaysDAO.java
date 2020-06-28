@@ -7,14 +7,16 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 
 import it.polito.tdp.flightdelays.model.Airline;
 import it.polito.tdp.flightdelays.model.Airport;
+import it.polito.tdp.flightdelays.model.AirportPair;
 import it.polito.tdp.flightdelays.model.Flight;
 
 public class FlightDelaysDAO {
 
-	public List<Airline> loadAllAirlines() {
+	public void loadAllAirlines(Map<String, Airline> idMapAirlines) {
 		String sql = "SELECT id, airline from airlines";
 		List<Airline> result = new ArrayList<Airline>();
 
@@ -24,11 +26,12 @@ public class FlightDelaysDAO {
 			ResultSet rs = st.executeQuery();
 
 			while (rs.next()) {
-				result.add(new Airline(rs.getString("ID"), rs.getString("airline")));
+				if(! idMapAirlines.containsKey(rs.getString("ID"))) {
+					idMapAirlines.put(rs.getString("ID"), new Airline(rs.getString("ID"), rs.getString("airline")));
+				}
 			}
 
 			conn.close();
-			return result;
 
 		} catch (SQLException e) {
 			e.printStackTrace();
@@ -37,9 +40,8 @@ public class FlightDelaysDAO {
 		}
 	}
 
-	public List<Airport> loadAllAirports() {
+	public void loadAllAirports(Map<String, Airport> idMapAirports) {
 		String sql = "SELECT id, airport, city, state, country, latitude, longitude FROM airports";
-		List<Airport> result = new ArrayList<Airport>();
 		
 		try {
 			Connection conn = DBConnect.getConnection();
@@ -47,9 +49,44 @@ public class FlightDelaysDAO {
 			ResultSet rs = st.executeQuery();
 
 			while (rs.next()) {
-				Airport airport = new Airport(rs.getString("id"), rs.getString("airport"), rs.getString("city"),
+				if(! idMapAirports.containsKey(rs.getString("id"))) {
+					Airport airport = new Airport(rs.getString("id"), rs.getString("airport"), rs.getString("city"),
 						rs.getString("state"), rs.getString("country"), rs.getDouble("latitude"), rs.getDouble("longitude"));
-				result.add(airport);
+					idMapAirports.put(rs.getString("id"), airport);
+				}
+			}
+			
+			conn.close();
+			
+		} catch (SQLException e) {
+			e.printStackTrace();
+			System.out.println("Errore connessione al database");
+			throw new RuntimeException("Error Connection Database");
+		}
+	}
+	
+	public List<AirportPair> getAllPairs(Map<String, Airport> idMapAirports, Airline airline) {
+		String sql = "SELECT f.ORIGIN_AIRPORT_ID AS a1, f.DESTINATION_AIRPORT_ID AS a2, " + 
+				"AVG(f.ARRIVAL_DELAY) AS delays " + 
+				"FROM flights AS f, airports AS a1, airports AS a2 " + 
+				"WHERE f.AIRLINE = ? AND f.ORIGIN_AIRPORT_ID = a1.ID AND f.ORIGIN_AIRPORT_ID = a2.ID " + 
+				"GROUP BY f.ORIGIN_AIRPORT_ID, f.DESTINATION_AIRPORT_ID";
+		
+		List<AirportPair> result = new ArrayList<>();
+		
+		try {
+			Connection conn = DBConnect.getConnection();
+			PreparedStatement st = conn.prepareStatement(sql);
+			st.setString(1, airline.getId());
+			ResultSet rs = st.executeQuery();
+
+			while (rs.next()) {
+				if(idMapAirports.containsKey(rs.getString("a1")) && idMapAirports.containsKey(rs.getString("a2"))) {
+					result.add(new AirportPair(idMapAirports.get(rs.getString("a1")), 
+							idMapAirports.get(rs.getString("a2")), 
+							rs.getDouble("delays")));
+				}
+				else throw new RuntimeException("Errore, riempire l'idMap prima di generare il grafo.");
 			}
 			
 			conn.close();
@@ -60,8 +97,9 @@ public class FlightDelaysDAO {
 			System.out.println("Errore connessione al database");
 			throw new RuntimeException("Error Connection Database");
 		}
+		
 	}
-
+	
 	public List<Flight> loadAllFlights() {
 		String sql = "SELECT id, airline, flight_number, origin_airport_id, destination_airport_id, scheduled_dep_date, "
 				+ "arrival_date, departure_delay, arrival_delay, air_time, distance FROM flights";
